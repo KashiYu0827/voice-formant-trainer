@@ -79,7 +79,20 @@ function drawWaveform(canvas, analyser) {
 }
 
 // =====================
-// スペクトル描画
+// Mel尺度ヘルパー
+// =====================
+function freqToMel(f) { return 2595 * Math.log10(1 + f / 700); }
+function melToFreq(m) { return 700 * (Math.pow(10, m / 2595) - 1); }
+
+// Mel尺度でのX座標 (0–1 正規化)
+function freqToMelX(freq) {
+  const melMin = freqToMel(0);
+  const melMax = freqToMel(MAX_FREQ);
+  return (freqToMel(freq) - melMin) / (melMax - melMin);
+}
+
+// =====================
+// スペクトル描画（Mel尺度 + 音名ラベル）
 // =====================
 function drawSpectrum(canvas, analyser, sampleRate) {
   const ctx    = resizeCanvas(canvas);
@@ -93,28 +106,28 @@ function drawSpectrum(canvas, analyser, sampleRate) {
   ctx.fillStyle = '#0d0d1e';
   ctx.fillRect(0, 0, W, H);
 
-  // 2500-3500Hz 帯域ハイライト
-  const lowBin  = freqToBin(FORMANT_LOW,  sampleRate, FFT_SIZE);
-  const highBin = freqToBin(FORMANT_HIGH, sampleRate, FFT_SIZE);
-  const maxBin  = freqToBin(MAX_FREQ,     sampleRate, FFT_SIZE);
-
-  // 表示するビン数
+  const maxBin = freqToBin(MAX_FREQ, sampleRate, FFT_SIZE);
   const displayBins = Math.min(maxBin, bufLen);
 
-  const highlightX1 = (lowBin  / displayBins) * W;
-  const highlightX2 = (highBin / displayBins) * W;
-
+  // Singer's Formant 帯域ハイライト（Mel座標）
+  const highlightX1 = freqToMelX(FORMANT_LOW)  * W;
+  const highlightX2 = freqToMelX(FORMANT_HIGH) * W;
   ctx.fillStyle = 'rgba(255, 140, 0, 0.18)';
   ctx.fillRect(highlightX1, 0, highlightX2 - highlightX1, H);
 
-  // スペクトルバー
-  const barW = W / displayBins;
-  for (let i = 0; i < displayBins; i++) {
-    const barH = (data[i] / 255) * H;
-    const x    = i * barW;
-    const inFormant = (i >= lowBin && i < highBin);
+  // スペクトルバーをMel尺度で描画
+  // 各ピクセル列 x に対応するMel周波数のエネルギーを補間して描画
+  for (let px = 0; px < W; px++) {
+    const melNorm = px / W;
+    const melMin  = freqToMel(0);
+    const melMax  = freqToMel(MAX_FREQ);
+    const freq    = melToFreq(melMin + melNorm * (melMax - melMin));
+    const bin     = Math.min(Math.round(freq / (sampleRate / FFT_SIZE)), displayBins - 1);
+
+    const barH = (data[bin] / 255) * H;
+    const inFormant = (freq >= FORMANT_LOW && freq < FORMANT_HIGH);
     ctx.fillStyle = inFormant ? '#ff8c00' : 'rgba(200, 220, 255, 0.85)';
-    ctx.fillRect(x, H - barH, Math.max(barW - 1, 1), barH);
+    ctx.fillRect(px, H - barH, 1, barH);
   }
 
   // 帯域境界線
@@ -122,30 +135,32 @@ function drawSpectrum(canvas, analyser, sampleRate) {
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 3]);
   ctx.beginPath();
-  ctx.moveTo(highlightX1, 0);
-  ctx.lineTo(highlightX1, H);
-  ctx.moveTo(highlightX2, 0);
-  ctx.lineTo(highlightX2, H);
+  ctx.moveTo(highlightX1, 0); ctx.lineTo(highlightX1, H);
+  ctx.moveTo(highlightX2, 0); ctx.lineTo(highlightX2, H);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // 軸ラベル
+  // 音名 + Hz ラベル（音楽的に意味のある周波数に絞る）
+  // C4=261.6Hz, A4=440Hz, C5=523Hz, E5=659Hz, G5=784Hz, C6=1047Hz, Singer's Formant注記
   const labels = [
-    { freq: 0,    label: '0' },
-    { freq: 1000, label: '1k' },
-    { freq: 2000, label: '2k' },
-    { freq: 3000, label: '3k' },
-    { freq: 4000, label: '4k' },
-    { freq: 8000, label: '8k Hz' },
+    { freq: 261.6,  label: 'C4' },
+    { freq: 440,    label: 'A4' },
+    { freq: 523.3,  label: 'C5' },
+    { freq: 659.3,  label: 'E5' },
+    { freq: 784.0,  label: 'G5' },
+    { freq: 1046.5, label: 'C6' },
+    { freq: 2093,   label: 'C7' },
+    { freq: 2500,   label: '▼SF', isFormant: true },
+    { freq: 3500,   label: 'SF▲', isFormant: true },
   ];
-  ctx.fillStyle = '#aaa';
-  ctx.font = '10px sans-serif';
+
+  ctx.font = '9px sans-serif';
   ctx.textAlign = 'center';
-  for (const { freq, label } of labels) {
-    const bin = freqToBin(freq, sampleRate, FFT_SIZE);
-    const lx  = (bin / displayBins) * W;
-    const clampedX = Math.min(Math.max(lx, 10), W - 10);
-    ctx.fillText(label, clampedX, H - 4);
+  for (const { freq, label, isFormant } of labels) {
+    if (freq > MAX_FREQ) continue;
+    const lx = freqToMelX(freq) * W;
+    ctx.fillStyle = isFormant ? 'rgba(255, 140, 0, 0.9)' : '#888';
+    ctx.fillText(label, Math.min(Math.max(lx, 14), W - 14), H - 4);
   }
 }
 
