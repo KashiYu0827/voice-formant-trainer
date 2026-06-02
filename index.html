@@ -219,7 +219,7 @@
       transition: background 0.2s, border-color 0.2s;
       margin-top: 8px;
     }
-    #measureBtn:disabled { opacity: 0.35; cursor: default; }
+    #measureBtn.not-ready { opacity: 0.35; cursor: default; }
     #measureBtn.measuring {
       border-color: #cc4444;
       color: #ff8888;
@@ -329,7 +329,7 @@
     </div>
     <p class="hint">20%以上で「通る声」ゾーン</p>
 
-    <button id="measureBtn" disabled>計測スタート</button>
+    <button id="measureBtn" class="not-ready">計測スタート</button>
 
     <div id="scoreCard" hidden>
       <div id="scoreHeadline"></div>

@@ -49,10 +49,17 @@ const SUSTAINED_MS = 500;    // 何ms継続でグロー発動
 
 // 計測状態
 let isMeasuring     = false;
-let measureVoice    = 0;     // 有声フレーム数
-let measureGreen    = 0;     // 緑ゾーンフレーム数
-let measureYellow   = 0;     // 黄ゾーンフレーム数
-const VAD_THRESHOLD = 800;   // これ以上のtotalSumなら有声とみなす
+let measureVoice    = 0;
+let measureGreen    = 0;
+let measureYellow   = 0;
+
+// 動的ノイズフロア
+let noiseFloor      = 0;     // キャリブレーション後にセット
+let calibFrames     = [];    // キャリブレーション用バッファ
+let isCalibrating   = false;
+const CALIB_MS      = 800;   // 起動後何ms環境ノイズを計測するか
+const VAD_MULTIPLIER = 3.0;  // ノイズフロアの何倍以上で有声とみなすか
+let calibStartTime  = 0;
 
 // =====================
 // ヘルパー
@@ -233,8 +240,22 @@ function updateGauge(analyser, sampleRate) {
     sprEl.style.color = spr >= 1.0 ? '#22c55e' : spr >= 0.5 ? '#eab308' : '#556699';
   }
 
-  // --- 計測フレーム集計 ---
-  if (isMeasuring && totalSum > VAD_THRESHOLD) {
+  // --- キャリブレーション（環境ノイズ計測） ---
+  if (isCalibrating) {
+    calibFrames.push(totalSum);
+    if (Date.now() - calibStartTime >= CALIB_MS) {
+      isCalibrating = false;
+      const avg = calibFrames.reduce((a, b) => a + b, 0) / calibFrames.length;
+      noiseFloor = avg;
+      const btn = document.getElementById('measureBtn');
+      btn.textContent = '計測スタート';
+    }
+    return;  // キャリブレーション中はゲージ表示をスキップ
+  }
+
+  // --- 計測フレーム集計（ノイズフロアの3倍超で有声） ---
+  const vadThreshold = noiseFloor * VAD_MULTIPLIER;
+  if (isMeasuring && totalSum > vadThreshold) {
     measureVoice++;
     if (ratio >= mode.high_th)  measureGreen++;
     else if (ratio >= mode.mid) measureYellow++;
@@ -274,8 +295,16 @@ async function startMic() {
     source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
-    isRunning = true;
-    document.getElementById('measureBtn').disabled = false;
+    isRunning      = true;
+    isCalibrating  = true;
+    calibFrames    = [];
+    calibStartTime = Date.now();
+    noiseFloor     = 0;
+
+    const btn = document.getElementById('measureBtn');
+    btn.classList.remove('not-ready');
+    btn.textContent = 'キャリブレーション中…';
+
     drawLoop();
   } catch (err) {
     alert('マイクへのアクセスに失敗しました: ' + err.message);
@@ -323,9 +352,11 @@ function stopMic() {
   document.getElementById('gaugeBar').classList.remove('sustained');
   document.getElementById('sustainedLabel').classList.remove('visible');
   isMeasuring = false;
-  document.getElementById('measureBtn').disabled = true;
-  document.getElementById('measureBtn').textContent = '計測スタート';
-  document.getElementById('measureBtn').classList.remove('measuring');
+  isCalibrating = false;
+  const mBtn = document.getElementById('measureBtn');
+  mBtn.classList.add('not-ready');
+  mBtn.classList.remove('measuring');
+  mBtn.textContent = '計測スタート';
 }
 
 // =====================
@@ -403,8 +434,9 @@ function showScore() {
 
 document.getElementById('measureBtn').addEventListener('click', () => {
   const btn = document.getElementById('measureBtn');
+  if (btn.classList.contains('not-ready')) return;  // 未準備なら無視
+
   if (!isMeasuring) {
-    // 計測スタート
     isMeasuring   = true;
     measureVoice  = 0;
     measureGreen  = 0;
@@ -413,7 +445,6 @@ document.getElementById('measureBtn').addEventListener('click', () => {
     btn.textContent = '計測ストップ';
     btn.classList.add('measuring');
   } else {
-    // 計測ストップ → スコア表示
     isMeasuring = false;
     btn.textContent = '計測スタート';
     btn.classList.remove('measuring');
