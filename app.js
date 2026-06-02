@@ -13,12 +13,14 @@ const GAUGE_HIGH   = 0.20;   // 20%以上で緑
 // =====================
 // 状態
 // =====================
-let audioContext = null;
-let analyser     = null;
-let source       = null;
-let tracks       = [];
-let animationId  = null;
-let isRunning    = false;
+let audioContext  = null;
+let analyser      = null;
+let source        = null;
+let tracks        = [];
+let animationId   = null;
+let isRunning     = false;
+let sustainedStart = null;   // 通る声ゾーン突入タイムスタンプ
+const SUSTAINED_MS = 500;    // 何ms継続でグロー発動
 
 // =====================
 // ヘルパー
@@ -148,13 +150,14 @@ function drawSpectrum(canvas, analyser, sampleRate) {
 }
 
 // =====================
-// ゲージ更新
+// ゲージ更新（SPR + 持続グロー付き）
 // =====================
 function updateGauge(analyser, sampleRate) {
   const bufLen = analyser.frequencyBinCount;
   const data   = new Uint8Array(bufLen);
   analyser.getByteFrequencyData(data);
 
+  // --- Singer's Formant エネルギー比率 ---
   const lowBin  = freqToBin(FORMANT_LOW,  sampleRate, FFT_SIZE);
   const highBin = freqToBin(FORMANT_HIGH, sampleRate, FFT_SIZE);
 
@@ -164,27 +167,57 @@ function updateGauge(analyser, sampleRate) {
     totalSum += data[i];
     if (i >= lowBin && i < highBin) bandSum += data[i];
   }
-
   const ratio = totalSum > 0 ? bandSum / totalSum : 0;
   const pct   = Math.min(ratio * 100, 100).toFixed(1);
 
-  // カラー
+  // --- SPR: 2–4kHz エネルギー / 0–2kHz エネルギー ---
+  const spr2kBin = freqToBin(2000, sampleRate, FFT_SIZE);
+  const spr4kBin = freqToBin(4000, sampleRate, FFT_SIZE);
+
+  let lowBandSum  = 0;
+  let highBandSum = 0;
+  for (let i = 0; i < bufLen; i++) {
+    if (i < spr2kBin)                         lowBandSum  += data[i];
+    else if (i >= spr2kBin && i < spr4kBin)   highBandSum += data[i];
+  }
+  const spr = lowBandSum > 0 ? highBandSum / lowBandSum : 0;
+
+  // --- カラー ---
   let color;
-  if (ratio >= GAUGE_HIGH)     color = '#22c55e'; // 緑
-  else if (ratio >= GAUGE_MID) color = '#eab308'; // 黄
-  else                         color = '#6b7280'; // グレー
+  if (ratio >= GAUGE_HIGH)     color = '#22c55e';
+  else if (ratio >= GAUGE_MID) color = '#eab308';
+  else                         color = '#6b7280';
 
-  const gaugeBar  = document.getElementById('gaugeBar');
-  const gaugeText = document.getElementById('gaugeText');
-
-  // ゲージバー本体のバー幅
+  // --- ゲージバー ---
   const fillEl = document.getElementById('gaugeFill');
   if (fillEl) {
     fillEl.style.width = `${Math.min(ratio * 100, 100)}%`;
     fillEl.style.background = color;
   }
-  gaugeText.textContent = `${pct}%`;
-  gaugeText.style.color = color;
+  document.getElementById('gaugeText').textContent = `${pct}%`;
+  document.getElementById('gaugeText').style.color = color;
+
+  // --- SPR表示 ---
+  const sprEl = document.getElementById('sprText');
+  if (sprEl) {
+    sprEl.textContent = `SPR ${spr.toFixed(2)}`;
+    sprEl.style.color = spr >= 1.0 ? '#22c55e' : spr >= 0.5 ? '#eab308' : '#556699';
+  }
+
+  // --- 持続グロー ---
+  const gaugeBar     = document.getElementById('gaugeBar');
+  const sustainedEl  = document.getElementById('sustainedLabel');
+  if (ratio >= GAUGE_HIGH) {
+    if (!sustainedStart) sustainedStart = Date.now();
+    if (Date.now() - sustainedStart >= SUSTAINED_MS) {
+      gaugeBar.classList.add('sustained');
+      if (sustainedEl) sustainedEl.classList.add('visible');
+    }
+  } else {
+    sustainedStart = null;
+    gaugeBar.classList.remove('sustained');
+    if (sustainedEl) sustainedEl.classList.remove('visible');
+  }
 }
 
 // =====================
@@ -247,6 +280,11 @@ function stopMic() {
   if (fillEl) { fillEl.style.width = '0%'; fillEl.style.background = '#6b7280'; }
   document.getElementById('gaugeText').textContent = '0%';
   document.getElementById('gaugeText').style.color = '#6b7280';
+  document.getElementById('sprText').textContent = 'SPR —';
+  document.getElementById('sprText').style.color = '#556699';
+  sustainedStart = null;
+  document.getElementById('gaugeBar').classList.remove('sustained');
+  document.getElementById('sustainedLabel').classList.remove('visible');
 }
 
 // =====================
