@@ -53,12 +53,15 @@ let measureVoice    = 0;
 let measureGreen    = 0;
 let measureYellow   = 0;
 
-// 動的ノイズフロア
-let noiseFloor      = 0;     // キャリブレーション後にセット
-let calibFrames     = [];    // キャリブレーション用バッファ
+// スペクトル減算用ノイズプロファイル
+let noiseSpectrum   = null;  // Float32Array: 周波数ビンごとのノイズ平均
+let noiseTotal      = 0;     // ノイズフロアの総エネルギー平均
+let calibAccum      = null;  // キャリブレーション累積バッファ
+let calibCount      = 0;     // キャリブレーションフレーム数
 let isCalibrating   = false;
-const CALIB_MS      = 3000;  // 起動後何ms環境ノイズを計測するか
-const VAD_MULTIPLIER = 3.0;  // ノイズフロアの何倍以上で有声とみなすか
+const CALIB_MS      = 3000;
+const NOISE_ALPHA   = 1.5;   // ノイズを何倍引くか（余裕を持たせる）
+const VAD_MULTIPLIER = 4.0;  // ノイズ総エネルギーの何倍以上で有声とみなすか
 let calibStartTime  = 0;
 
 // =====================
@@ -207,7 +210,6 @@ function updateGauge(analyser, sampleRate) {
     if (i >= lowBin && i < highBin) bandSum += data[i];
   }
   const ratio = totalSum > 0 ? bandSum / totalSum : 0;
-  const pct   = Math.min(ratio * 100, 100).toFixed(1);
 
   // --- SPR: 2–4kHz / 0–2kHz ---
   const spr2kBin = freqToBin(2000, sampleRate, FFT_SIZE);
@@ -219,14 +221,18 @@ function updateGauge(analyser, sampleRate) {
   }
   const spr = lowBandSum > 0 ? highBandSum / lowBandSum : 0;
 
-  // --- カラー（モードごとの閾値） ---
-  let color;
-  if (ratio >= mode.high_th)  color = '#22c55e';
-  else if (ratio >= mode.mid) color = '#eab308';
-  else                        color = '#6b7280';
+  // ゲージ表示に使う比率: 声があるときはcleanRatio、沈黙時は0
+  const displayRatio = isVoice ? cleanRatio : 0;
+  const pct = (displayRatio * 100).toFixed(1);
 
-  // --- ゲージバー幅をモードの高閾値に対して正規化 ---
-  const fillPct = Math.min((ratio / mode.high_th) * 80, 100);
+  // --- カラー ---
+  let color;
+  if (displayRatio >= mode.high_th)  color = '#22c55e';
+  else if (displayRatio >= mode.mid) color = '#eab308';
+  else                               color = '#6b7280';
+
+  // --- ゲージバー幅 ---
+  const fillPct = Math.min((displayRatio / mode.high_th) * 80, 100);
   const fillEl  = document.getElementById('gaugeFill');
   if (fillEl) { fillEl.style.width = `${fillPct}%`; fillEl.style.background = color; }
 
@@ -240,26 +246,51 @@ function updateGauge(analyser, sampleRate) {
     sprEl.style.color = spr >= 1.0 ? '#22c55e' : spr >= 0.5 ? '#eab308' : '#556699';
   }
 
-  // --- キャリブレーション（環境ノイズ計測） ---
+  // --- キャリブレーション（ノイズスペクトルを周波数ビンごとに記録） ---
   if (isCalibrating) {
-    calibFrames.push(totalSum);
-    const elapsed = Date.now() - calibStartTime;
+    for (let i = 0; i < bufLen; i++) calibAccum[i] += data[i];
+    calibCount++;
+    const elapsed   = Date.now() - calibStartTime;
     const remaining = Math.ceil((CALIB_MS - elapsed) / 1000);
     document.getElementById('measureBtn').textContent = `環境音を計測中… ${remaining}`;
     if (elapsed >= CALIB_MS) {
       isCalibrating = false;
-      noiseFloor = calibFrames.reduce((a, b) => a + b, 0) / calibFrames.length;
+      noiseSpectrum = new Float32Array(bufLen);
+      let nTotal = 0;
+      for (let i = 0; i < bufLen; i++) {
+        noiseSpectrum[i] = calibAccum[i] / calibCount;
+        nTotal += noiseSpectrum[i];
+      }
+      noiseTotal = nTotal;
       document.getElementById('measureBtn').textContent = '計測スタート';
     }
     return;
   }
 
-  // --- 計測フレーム集計（ノイズフロアの3倍超で有声） ---
-  const vadThreshold = noiseFloor * VAD_MULTIPLIER;
-  if (isMeasuring && totalSum > vadThreshold) {
+  // --- スペクトル減算: ノイズを引いてからband/totalを再計算 ---
+  let cleanBand = 0, cleanTotal = 0;
+  if (noiseSpectrum) {
+    for (let i = 0; i < bufLen; i++) {
+      const clean = Math.max(0, data[i] - NOISE_ALPHA * noiseSpectrum[i]);
+      cleanTotal += clean;
+      if (i >= lowBin && i < highBin) cleanBand += clean;
+    }
+  } else {
+    cleanBand  = bandSum;
+    cleanTotal = totalSum;
+  }
+  const cleanRatio = cleanTotal > 0 ? cleanBand / cleanTotal : 0;
+
+  // --- VAD: ノイズ総エネルギーの4倍以上で有声 ---
+  const isVoice = noiseSpectrum
+    ? totalSum > noiseTotal * VAD_MULTIPLIER
+    : totalSum > 1000;
+
+  // --- 計測フレーム集計 ---
+  if (isMeasuring && isVoice) {
     measureVoice++;
-    if (ratio >= mode.high_th)  measureGreen++;
-    else if (ratio >= mode.mid) measureYellow++;
+    if (cleanRatio >= mode.high_th)  measureGreen++;
+    else if (cleanRatio >= mode.mid) measureYellow++;
   }
 
   // --- 持続グロー ---
@@ -298,9 +329,11 @@ async function startMic() {
 
     isRunning      = true;
     isCalibrating  = true;
-    calibFrames    = [];
+    calibAccum     = new Float32Array(analyser.frequencyBinCount);
+    calibCount     = 0;
     calibStartTime = Date.now();
-    noiseFloor     = 0;
+    noiseSpectrum  = null;
+    noiseTotal     = 0;
 
     const btn = document.getElementById('measureBtn');
     btn.classList.remove('not-ready');
