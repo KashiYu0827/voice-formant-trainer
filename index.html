@@ -90,7 +90,11 @@
       transition: width 0.08s linear, background 0.2s;
     }
 
-    /* 閾値マーカー */
+    /* 閾値マーカー（CSS変数で動的に制御） */
+    :root {
+      --marker-mid:  10%;
+      --marker-high: 20%;
+    }
     #gaugeBar::before,
     #gaugeBar::after {
       content: '';
@@ -101,11 +105,11 @@
       z-index: 2;
     }
     #gaugeBar::before {
-      left: 10%;       /* GAUGE_MID = 10% */
+      left: calc(var(--marker-mid) * 0.8);   /* fillPctの正規化に合わせてスケール */
       background: rgba(234, 179, 8, 0.6);
     }
     #gaugeBar::after {
-      left: 20%;       /* GAUGE_HIGH = 20% */
+      left: 80%;                              /* high_thが常に80%位置 */
       background: rgba(34, 197, 94, 0.7);
     }
 
@@ -168,6 +172,31 @@
     .dot-yellow { background: #eab308; }
     .dot-green  { background: #22c55e; }
 
+    /* モードトグル */
+    .mode-toggle {
+      display: flex;
+      border: 1px solid #334477;
+      border-radius: 20px;
+      overflow: hidden;
+      width: fit-content;
+      margin: 0 auto;
+    }
+    .mode-btn {
+      padding: 6px 18px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: transparent;
+      color: #556699;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      white-space: nowrap;
+    }
+    .mode-btn.active {
+      background: #1e2a55;
+      color: #7ecfff;
+    }
+
     /* スペクトル アコーディオン */
     #spectrumSection {
       cursor: pointer;
@@ -215,13 +244,18 @@
 
   <button id="micBtn">マイク ON</button>
 
+  <div class="mode-toggle">
+    <button class="mode-btn active" data-mode="singing">歌声 ♪</button>
+    <button class="mode-btn" data-mode="speech">話し声 ◎</button>
+  </div>
+
   <section>
     <h2>波形</h2>
     <canvas id="waveform"></canvas>
   </section>
 
   <section>
-    <h2>Singer's Formant（2500–3500 Hz）</h2>
+    <h2 id="gaugeLabel">Singer's Formant（2500–3500 Hz）</h2>
     <div id="gaugeBar">
       <div id="gaugeFill"></div>
     </div>

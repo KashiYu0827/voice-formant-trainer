@@ -1,14 +1,39 @@
 // =====================
 // 定数
 // =====================
-const FORMANT_LOW  = 2500;   // Singer's Formant 下限Hz
-const FORMANT_HIGH = 3500;   // Singer's Formant 上限Hz
-const FFT_SIZE     = 2048;
-const SMOOTHING    = 0.8;
-const MAX_FREQ     = 8000;   // 表示する最大周波数
-// ゲージ閾値
-const GAUGE_MID    = 0.10;   // 10%以上で黄
-const GAUGE_HIGH   = 0.20;   // 20%以上で緑
+const FFT_SIZE  = 2048;
+const SMOOTHING = 0.8;
+const MAX_FREQ  = 8000;
+
+// モード設定
+const MODES = {
+  singing: {
+    low:      2500,
+    high:     3500,
+    mid:      0.10,
+    high_th:  0.20,
+    label:    'Singer\'s Formant（2500–3500 Hz）',
+    legend:   [{ pct: '10%', color: 'yellow', text: '10% — 黄ゾーン' },
+               { pct: '20%', color: 'green',  text: '20% — 通る声ゾーン' }],
+    hint:     '20%以上で「通る声」ゾーン',
+    highlight: 'rgba(255, 140, 0, 0.18)',
+    barColor:  '#ff8c00',
+  },
+  speech: {
+    low:      2000,
+    high:     5000,
+    mid:      0.20,
+    high_th:  0.35,
+    label:    'Twang / プレゼンス（2000–5000 Hz）',
+    legend:   [{ pct: '20%', color: 'yellow', text: '20% — 黄ゾーン' },
+               { pct: '35%', color: 'green',  text: '35% — 通る声ゾーン' }],
+    hint:     '35%以上で「通る話し声」ゾーン',
+    highlight: 'rgba(100, 200, 255, 0.15)',
+    barColor:  '#38bdf8',
+  },
+};
+
+let currentMode = 'singing';
 
 // =====================
 // 状態
@@ -93,18 +118,18 @@ function drawSpectrum(canvas, analyser, sampleRate) {
   ctx.fillStyle = '#0d0d1e';
   ctx.fillRect(0, 0, W, H);
 
-  // 2500-3500Hz 帯域ハイライト
-  const lowBin  = freqToBin(FORMANT_LOW,  sampleRate, FFT_SIZE);
-  const highBin = freqToBin(FORMANT_HIGH, sampleRate, FFT_SIZE);
-  const maxBin  = freqToBin(MAX_FREQ,     sampleRate, FFT_SIZE);
+  // モードに応じた帯域ハイライト
+  const mode    = MODES[currentMode];
+  const lowBin  = freqToBin(mode.low,  sampleRate, FFT_SIZE);
+  const highBin = freqToBin(mode.high, sampleRate, FFT_SIZE);
+  const maxBin  = freqToBin(MAX_FREQ,  sampleRate, FFT_SIZE);
 
-  // 表示するビン数
   const displayBins = Math.min(maxBin, bufLen);
 
   const highlightX1 = (lowBin  / displayBins) * W;
   const highlightX2 = (highBin / displayBins) * W;
 
-  ctx.fillStyle = 'rgba(255, 140, 0, 0.18)';
+  ctx.fillStyle = mode.highlight;
   ctx.fillRect(highlightX1, 0, highlightX2 - highlightX1, H);
 
   // スペクトルバー
@@ -112,13 +137,13 @@ function drawSpectrum(canvas, analyser, sampleRate) {
   for (let i = 0; i < displayBins; i++) {
     const barH = (data[i] / 255) * H;
     const x    = i * barW;
-    const inFormant = (i >= lowBin && i < highBin);
-    ctx.fillStyle = inFormant ? '#ff8c00' : 'rgba(200, 220, 255, 0.85)';
+    const inBand = (i >= lowBin && i < highBin);
+    ctx.fillStyle = inBand ? mode.barColor : 'rgba(200, 220, 255, 0.85)';
     ctx.fillRect(x, H - barH, Math.max(barW - 1, 1), barH);
   }
 
   // 帯域境界線
-  ctx.strokeStyle = 'rgba(255, 140, 0, 0.7)';
+  ctx.strokeStyle = currentMode === 'speech' ? 'rgba(56, 189, 248, 0.7)' : 'rgba(255, 140, 0, 0.7)';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 3]);
   ctx.beginPath();
@@ -150,19 +175,19 @@ function drawSpectrum(canvas, analyser, sampleRate) {
 }
 
 // =====================
-// ゲージ更新（SPR + 持続グロー付き）
+// ゲージ更新（モード対応 + SPR + 持続グロー）
 // =====================
 function updateGauge(analyser, sampleRate) {
+  const mode   = MODES[currentMode];
   const bufLen = analyser.frequencyBinCount;
   const data   = new Uint8Array(bufLen);
   analyser.getByteFrequencyData(data);
 
-  // --- Singer's Formant エネルギー比率 ---
-  const lowBin  = freqToBin(FORMANT_LOW,  sampleRate, FFT_SIZE);
-  const highBin = freqToBin(FORMANT_HIGH, sampleRate, FFT_SIZE);
+  // --- 帯域エネルギー比率 ---
+  const lowBin  = freqToBin(mode.low,  sampleRate, FFT_SIZE);
+  const highBin = freqToBin(mode.high, sampleRate, FFT_SIZE);
 
-  let bandSum  = 0;
-  let totalSum = 0;
+  let bandSum = 0, totalSum = 0;
   for (let i = 0; i < bufLen; i++) {
     totalSum += data[i];
     if (i >= lowBin && i < highBin) bandSum += data[i];
@@ -170,30 +195,27 @@ function updateGauge(analyser, sampleRate) {
   const ratio = totalSum > 0 ? bandSum / totalSum : 0;
   const pct   = Math.min(ratio * 100, 100).toFixed(1);
 
-  // --- SPR: 2–4kHz エネルギー / 0–2kHz エネルギー ---
+  // --- SPR: 2–4kHz / 0–2kHz ---
   const spr2kBin = freqToBin(2000, sampleRate, FFT_SIZE);
   const spr4kBin = freqToBin(4000, sampleRate, FFT_SIZE);
-
-  let lowBandSum  = 0;
-  let highBandSum = 0;
+  let lowBandSum = 0, highBandSum = 0;
   for (let i = 0; i < bufLen; i++) {
-    if (i < spr2kBin)                         lowBandSum  += data[i];
-    else if (i >= spr2kBin && i < spr4kBin)   highBandSum += data[i];
+    if (i < spr2kBin)                       lowBandSum  += data[i];
+    else if (i >= spr2kBin && i < spr4kBin) highBandSum += data[i];
   }
   const spr = lowBandSum > 0 ? highBandSum / lowBandSum : 0;
 
-  // --- カラー ---
+  // --- カラー（モードごとの閾値） ---
   let color;
-  if (ratio >= GAUGE_HIGH)     color = '#22c55e';
-  else if (ratio >= GAUGE_MID) color = '#eab308';
-  else                         color = '#6b7280';
+  if (ratio >= mode.high_th)  color = '#22c55e';
+  else if (ratio >= mode.mid) color = '#eab308';
+  else                        color = '#6b7280';
 
-  // --- ゲージバー ---
-  const fillEl = document.getElementById('gaugeFill');
-  if (fillEl) {
-    fillEl.style.width = `${Math.min(ratio * 100, 100)}%`;
-    fillEl.style.background = color;
-  }
+  // --- ゲージバー幅をモードの高閾値に対して正規化 ---
+  const fillPct = Math.min((ratio / mode.high_th) * 80, 100);
+  const fillEl  = document.getElementById('gaugeFill');
+  if (fillEl) { fillEl.style.width = `${fillPct}%`; fillEl.style.background = color; }
+
   document.getElementById('gaugeText').textContent = `${pct}%`;
   document.getElementById('gaugeText').style.color = color;
 
@@ -205,9 +227,9 @@ function updateGauge(analyser, sampleRate) {
   }
 
   // --- 持続グロー ---
-  const gaugeBar     = document.getElementById('gaugeBar');
-  const sustainedEl  = document.getElementById('sustainedLabel');
-  if (ratio >= GAUGE_HIGH) {
+  const gaugeBar    = document.getElementById('gaugeBar');
+  const sustainedEl = document.getElementById('sustainedLabel');
+  if (ratio >= mode.high_th) {
     if (!sustainedStart) sustainedStart = Date.now();
     if (Date.now() - sustainedStart >= SUSTAINED_MS) {
       gaugeBar.classList.add('sustained');
@@ -326,6 +348,37 @@ document.getElementById('micBtn').addEventListener('click', () => {
     stopMic();
     updateMicBtn(false);
   }
+});
+
+// =====================
+// モード切替
+// =====================
+function applyMode(modeName) {
+  currentMode = modeName;
+  const mode  = MODES[modeName];
+
+  document.getElementById('gaugeLabel').textContent = mode.label;
+  document.getElementById('gaugeText').textContent  = '0%';
+  document.getElementById('sprText').textContent    = 'SPR —';
+  document.querySelector('#sustainedLabel').classList.remove('visible');
+  document.querySelector('#gaugeBar').classList.remove('sustained');
+
+  const fillEl = document.getElementById('gaugeFill');
+  if (fillEl) { fillEl.style.width = '0%'; fillEl.style.background = '#6b7280'; }
+
+  // 閾値マーカーをJS制御に変更（CSS変数経由）
+  document.documentElement.style.setProperty('--marker-mid',  `${mode.mid  * 100}%`);
+  document.documentElement.style.setProperty('--marker-high', `${mode.high_th * 100}%`);
+
+  sustainedStart = null;
+}
+
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyMode(btn.dataset.mode);
+  });
 });
 
 // =====================
