@@ -203,6 +203,61 @@
       color: #7ecfff;
     }
 
+    /* 計測ボタン */
+    #measureBtn {
+      width: 100%;
+      padding: 12px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: 2px solid #334477;
+      border-radius: 10px;
+      background: transparent;
+      color: #7ecfff;
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: rgba(126, 207, 255, 0.2);
+      transition: background 0.2s, border-color 0.2s;
+      margin-top: 8px;
+    }
+    #measureBtn:disabled { opacity: 0.35; cursor: default; }
+    #measureBtn.measuring {
+      border-color: #cc4444;
+      color: #ff8888;
+      background: #2d1a1a;
+    }
+
+    /* スコアカード */
+    #scoreCard {
+      margin-top: 12px;
+      padding: 14px;
+      background: #0d0d1e;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #scoreHeadline {
+      font-size: 1.4rem;
+      font-weight: 700;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    #scoreBreakdownBar {
+      display: flex;
+      height: 14px;
+      border-radius: 7px;
+      overflow: hidden;
+      width: 100%;
+    }
+    #scoreGreen  { background: #22c55e; transition: width 0.5s; }
+    #scoreYellow { background: #eab308; transition: width 0.5s; }
+    #scoreGray   { background: #374151; flex: 1; }
+    #scoreDetail {
+      font-size: 0.78rem;
+      color: #778899;
+      text-align: center;
+    }
+
     /* スペクトル アコーディオン */
     #spectrumSection {
       cursor: pointer;
@@ -273,6 +328,18 @@
       <span><span class="dot dot-green"></span>20% — 通る声ゾーン</span>
     </div>
     <p class="hint">20%以上で「通る声」ゾーン</p>
+
+    <button id="measureBtn" disabled>計測スタート</button>
+
+    <div id="scoreCard" hidden>
+      <div id="scoreHeadline"></div>
+      <div id="scoreBreakdownBar">
+        <div id="scoreGreen"></div>
+        <div id="scoreYellow"></div>
+        <div id="scoreGray"></div>
+      </div>
+      <div id="scoreDetail"></div>
+    </div>
   </section>
 
   <section id="spectrumSection">

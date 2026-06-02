@@ -47,6 +47,13 @@ let isRunning     = false;
 let sustainedStart = null;   // 通る声ゾーン突入タイムスタンプ
 const SUSTAINED_MS = 500;    // 何ms継続でグロー発動
 
+// 計測状態
+let isMeasuring     = false;
+let measureVoice    = 0;     // 有声フレーム数
+let measureGreen    = 0;     // 緑ゾーンフレーム数
+let measureYellow   = 0;     // 黄ゾーンフレーム数
+const VAD_THRESHOLD = 800;   // これ以上のtotalSumなら有声とみなす
+
 // =====================
 // ヘルパー
 // =====================
@@ -226,6 +233,13 @@ function updateGauge(analyser, sampleRate) {
     sprEl.style.color = spr >= 1.0 ? '#22c55e' : spr >= 0.5 ? '#eab308' : '#556699';
   }
 
+  // --- 計測フレーム集計 ---
+  if (isMeasuring && totalSum > VAD_THRESHOLD) {
+    measureVoice++;
+    if (ratio >= mode.high_th)  measureGreen++;
+    else if (ratio >= mode.mid) measureYellow++;
+  }
+
   // --- 持続グロー ---
   const gaugeBar    = document.getElementById('gaugeBar');
   const sustainedEl = document.getElementById('sustainedLabel');
@@ -261,6 +275,7 @@ async function startMic() {
     source.connect(analyser);
 
     isRunning = true;
+    document.getElementById('measureBtn').disabled = false;
     drawLoop();
   } catch (err) {
     alert('マイクへのアクセスに失敗しました: ' + err.message);
@@ -307,6 +322,10 @@ function stopMic() {
   sustainedStart = null;
   document.getElementById('gaugeBar').classList.remove('sustained');
   document.getElementById('sustainedLabel').classList.remove('visible');
+  isMeasuring = false;
+  document.getElementById('measureBtn').disabled = true;
+  document.getElementById('measureBtn').textContent = '計測スタート';
+  document.getElementById('measureBtn').classList.remove('measuring');
 }
 
 // =====================
@@ -347,6 +366,58 @@ document.getElementById('micBtn').addEventListener('click', () => {
   } else {
     stopMic();
     updateMicBtn(false);
+  }
+});
+
+// =====================
+// 計測スコア
+// =====================
+function showScore() {
+  const mode     = MODES[currentMode];
+  const greenPct  = measureVoice > 0 ? (measureGreen  / measureVoice) * 100 : 0;
+  const yellowPct = measureVoice > 0 ? (measureYellow / measureVoice) * 100 : 0;
+  const grayPct   = Math.max(0, 100 - greenPct - yellowPct);
+
+  const card = document.getElementById('scoreCard');
+  card.hidden = false;
+
+  // スコア見出し（通る声率）
+  const headEl = document.getElementById('scoreHeadline');
+  let grade, gradeColor;
+  if (greenPct >= 60)      { grade = 'S  通る声マスター'; gradeColor = '#22c55e'; }
+  else if (greenPct >= 40) { grade = 'A  いい感じ！';     gradeColor = '#4ade80'; }
+  else if (greenPct >= 20) { grade = 'B  もう少し';       gradeColor = '#eab308'; }
+  else                     { grade = 'C  練習あるのみ';   gradeColor = '#6b7280'; }
+
+  headEl.textContent  = `通る声率 ${greenPct.toFixed(0)}%  ${grade}`;
+  headEl.style.color  = gradeColor;
+
+  // 内訳バー
+  document.getElementById('scoreGreen').style.width  = `${greenPct}%`;
+  document.getElementById('scoreYellow').style.width = `${yellowPct}%`;
+
+  // 内訳テキスト
+  document.getElementById('scoreDetail').textContent =
+    `緑 ${greenPct.toFixed(0)}%  黄 ${yellowPct.toFixed(0)}%  測定フレーム ${measureVoice}`;
+}
+
+document.getElementById('measureBtn').addEventListener('click', () => {
+  const btn = document.getElementById('measureBtn');
+  if (!isMeasuring) {
+    // 計測スタート
+    isMeasuring   = true;
+    measureVoice  = 0;
+    measureGreen  = 0;
+    measureYellow = 0;
+    document.getElementById('scoreCard').hidden = true;
+    btn.textContent = '計測ストップ';
+    btn.classList.add('measuring');
+  } else {
+    // 計測ストップ → スコア表示
+    isMeasuring = false;
+    btn.textContent = '計測スタート';
+    btn.classList.remove('measuring');
+    showScore();
   }
 });
 
