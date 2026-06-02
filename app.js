@@ -57,7 +57,7 @@ let measureYellow   = 0;
 let noiseFloor      = 0;     // キャリブレーション後にセット
 let calibFrames     = [];    // キャリブレーション用バッファ
 let isCalibrating   = false;
-const CALIB_MS      = 800;   // 起動後何ms環境ノイズを計測するか
+const CALIB_MS      = 3000;  // 起動後何ms環境ノイズを計測するか
 const VAD_MULTIPLIER = 3.0;  // ノイズフロアの何倍以上で有声とみなすか
 let calibStartTime  = 0;
 
@@ -243,14 +243,15 @@ function updateGauge(analyser, sampleRate) {
   // --- キャリブレーション（環境ノイズ計測） ---
   if (isCalibrating) {
     calibFrames.push(totalSum);
-    if (Date.now() - calibStartTime >= CALIB_MS) {
+    const elapsed = Date.now() - calibStartTime;
+    const remaining = Math.ceil((CALIB_MS - elapsed) / 1000);
+    document.getElementById('measureBtn').textContent = `環境音を計測中… ${remaining}`;
+    if (elapsed >= CALIB_MS) {
       isCalibrating = false;
-      const avg = calibFrames.reduce((a, b) => a + b, 0) / calibFrames.length;
-      noiseFloor = avg;
-      const btn = document.getElementById('measureBtn');
-      btn.textContent = '計測スタート';
+      noiseFloor = calibFrames.reduce((a, b) => a + b, 0) / calibFrames.length;
+      document.getElementById('measureBtn').textContent = '計測スタート';
     }
-    return;  // キャリブレーション中はゲージ表示をスキップ
+    return;
   }
 
   // --- 計測フレーム集計（ノイズフロアの3倍超で有声） ---
