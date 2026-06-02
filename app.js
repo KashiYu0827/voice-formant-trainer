@@ -257,7 +257,12 @@ function drawLoop() {
   const sampleRate = audioContext.sampleRate;
 
   drawWaveform(document.getElementById('waveform'), analyser);
-  drawSpectrum(document.getElementById('spectrum'), analyser, sampleRate);
+
+  // スペクトルは展開中のみ描画
+  if (document.getElementById('spectrumSection').classList.contains('open')) {
+    drawSpectrum(document.getElementById('spectrum'), analyser, sampleRate);
+  }
+
   updateGauge(analyser, sampleRate);
 
   animationId = requestAnimationFrame(drawLoop);
@@ -283,6 +288,14 @@ document.getElementById('micBtn').addEventListener('click', () => {
     stopMic();
     updateMicBtn(false);
   }
+});
+
+// =====================
+// スペクトル アコーディオン
+// =====================
+document.getElementById('spectrumSection').addEventListener('click', () => {
+  const section = document.getElementById('spectrumSection');
+  section.classList.toggle('open');
 });
 
 // =====================

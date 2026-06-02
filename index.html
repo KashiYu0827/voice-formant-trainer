@@ -139,6 +139,47 @@
     }
     .dot-yellow { background: #eab308; }
     .dot-green  { background: #22c55e; }
+
+    /* スペクトル アコーディオン */
+    #spectrumSection {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #spectrumHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+
+    #spectrumToggle {
+      font-size: 0.75rem;
+      color: #556699;
+      transition: transform 0.25s;
+      display: inline-block;
+    }
+    #spectrumSection.open #spectrumToggle {
+      transform: rotate(180deg);
+    }
+
+    #spectrumBody {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 0.28s ease;
+    }
+    #spectrumSection.open #spectrumBody {
+      grid-template-rows: 1fr;
+    }
+
+    #spectrumInner {
+      overflow: hidden;
+    }
+
+    #spectrum {
+      height: 160px;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -152,11 +193,6 @@
   </section>
 
   <section>
-    <h2>スペクトル</h2>
-    <canvas id="spectrum"></canvas>
-  </section>
-
-  <section>
     <h2>Singer's Formant（2500–3500 Hz）</h2>
     <div id="gaugeBar">
       <div id="gaugeFill"></div>
@@ -167,6 +203,18 @@
       <span><span class="dot dot-green"></span>20% — 通る声ゾーン</span>
     </div>
     <p class="hint">20%以上で「通る声」ゾーン 🟢</p>
+  </section>
+
+  <section id="spectrumSection">
+    <div id="spectrumHeader">
+      <h2>スペクトル（詳細）</h2>
+      <span id="spectrumToggle">▼</span>
+    </div>
+    <div id="spectrumBody">
+      <div id="spectrumInner">
+        <canvas id="spectrum"></canvas>
+      </div>
+    </div>
   </section>
 
   <script src="app.js"></script>
